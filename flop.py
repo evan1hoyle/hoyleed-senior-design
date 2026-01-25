@@ -4,6 +4,7 @@ from ultralytics import YOLO
 import time
 import os
 import json
+import calcWinner
 
 X, Y = 1920, 1080
 CARD_TIMEOUT_SECONDS = 1.0 
@@ -12,24 +13,17 @@ CARD_IMAGE_WIDTH, CARD_IMAGE_HEIGHT = 100, 140
 PLAYER_HAND_SIZE, FLOP_HAND_SIZE = 2, 5
 
 def open_first_available_camera():
-    """
-    Attempts to open the first available and working camera by iterating through indices.
-    """
-    # Start checking from index 0
-    for index in range(10): # Check a reasonable range of indices (0 to 9)
+    for index in range(10):
         cap = cv2.VideoCapture(index)
         if cap.isOpened():
-            # Check if we can successfully read a frame
             ret, frame = cap.read()
             if ret:
                 print(f"Successfully opened camera with index {index}")
-                return cap # Return the working VideoCapture object
+                return cap
             else:
-                # If read fails, the camera might not be working correctly even if opened
                 cap.release()
         else:
-            cap.release() # Release the object if not opened
-
+            cap.release() 
     print("Error: Could not find an available camera.")
     return None
 
@@ -132,9 +126,6 @@ while True:
     if not success: break
     curr_t = time.time()
 
-    # p_slots = [(x, 'player') for sublist in players for x in sublist]
-    # flop_labeled = [(x, 'flop') for x in flop_slots]
-
     p_slots = []
     for p_idx, hand in enumerate(players, start=0):
         for c_idx, card in enumerate(hand, start=0):
@@ -144,8 +135,6 @@ while True:
     for f_idx, card in enumerate(flop_slots, start=0):
         flop_labeled.append((card, 'flop', 0,f_idx))
 
-
-
     all_slots = p_slots + flop_labeled
     crops = []
     for (x, y, w, h), label, p_idx,c_idx in all_slots:
@@ -154,7 +143,6 @@ while True:
             crops.append(crop)
         else:
             crops.append(np.zeros((100, 100, 3), dtype=np.uint8))
-
 
     results = model(crops, conf=0.4, verbose=False)
 
@@ -240,6 +228,8 @@ while True:
         player_slots, flop_slots = select_zones(cap)
         player_cards.clear()
         flop_cards.clear()
+
+    calcWinner.evaluate_winner()
 
 
 cap.release()

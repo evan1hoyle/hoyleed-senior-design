@@ -9,6 +9,7 @@
             --table-green: #1a472a;
             --felt-green: #2d5a3f;
             --border-wood: #5d4037;
+            --gold: #ffd700;
         }
 
         body { 
@@ -43,7 +44,7 @@
             justify-content: center; 
             gap: 15px; 
             min-height: 150px;
-            perspective: 1000px; /* For 3D feel */
+            perspective: 1000px;
         }
 
         .card { 
@@ -58,6 +59,7 @@
             justify-content: center;
             position: relative;
             overflow: hidden;
+            color: black;
         }
 
         .card img { 
@@ -84,6 +86,41 @@
             margin: 10px; 
             border: 1px solid rgba(255,255,255,0.1);
             flex: 1;
+            transition: all 0.4s ease;
+            text-align: center;
+        }
+
+        /* Winner Highlight Styles */
+        .player-box.winner {
+            border: 3px solid var(--gold);
+            background: rgba(255, 215, 0, 0.15);
+            transform: scale(1.05);
+            box-shadow: 0 0 25px rgba(255, 215, 0, 0.4);
+        }
+
+        .winner-label {
+            background: var(--gold);
+            color: black;
+            font-weight: bold;
+            padding: 2px 12px;
+            border-radius: 10px;
+            font-size: 0.9em;
+            display: inline-block;
+            margin-bottom: 8px;
+            animation: bounce 2s infinite;
+        }
+
+        .hand-type {
+            font-style: italic;
+            color: #bdc3c7;
+            font-size: 0.9em;
+            margin-bottom: 10px;
+        }
+
+        @keyframes bounce {
+            0%, 20%, 50%, 80%, 100% {transform: translateY(0);}
+            40% {transform: translateY(-5px);}
+            60% {transform: translateY(-3px);}
         }
 
         .flex-row { display: flex; justify-content: space-around; width: 100%; flex-wrap: wrap; }
@@ -100,7 +137,7 @@
 
     <div class="table">
         <div class="section">
-            <h2 style="color: #ffd700;">Community Board</h2>
+            <h2 style="color: var(--gold);">Community Board</h2>
             <div id="flop-container" class="card-container"></div>
         </div>
 
@@ -112,10 +149,13 @@
         const suitMap = { 'H': 'hearts', 'D': 'diamonds', 'S': 'spades', 'C': 'clubs' };
         const nameMap = { 'J': 'jack', 'Q': 'queen', 'K': 'king', 'A': 'ace', 'T': '10' };
 
-        // Keep track of the last state to prevent unnecessary re-renders
         let lastStateString = "";
 
         function getImagePath(cardCode) {
+            // Safety: Handle empty or partial card data to prevent .slice() errors
+            if (!cardCode || cardCode.length < 2) {
+                return 'https://placehold.co/100x140?text=...';
+            }
             const value = cardCode.slice(0, -1);
             const suit = cardCode.slice(-1);
             const fullName = nameMap[value] || value;
@@ -126,49 +166,57 @@
         async function updateDisplay() {
             try {
                 const ts = new Date().getTime();
-                const [pRes, fRes] = await Promise.all([
+                const [pRes, fRes, wRes] = await Promise.all([
                     fetch(`player_cards.json?t=${ts}`),
-                    fetch(`flop_cards.json?t=${ts}`)
+                    fetch(`flop_cards.json?t=${ts}`),
+                    fetch(`winner.json?t=${ts}`)
                 ]);
 
                 const players = await pRes.json();
                 const flop = await fRes.json();
+                const winData = await wRes.json();
 
-                // Create a unique string representing current data
-                const currentStateString = JSON.stringify({players, flop});
-                
-                // ONLY update the DOM if data has changed
+                const currentStateString = JSON.stringify({players, flop, winData});
                 if (currentStateString === lastStateString) return;
                 lastStateString = currentStateString;
 
-                // Update Flop
+                // Update Flop with filter
                 const flopContainer = document.getElementById('flop-container');
-                flopContainer.innerHTML = Object.values(flop).map((card, i) => `
-                    <div class="card" style="animation-delay: ${i * 0.1}s">
-                        <img src="${getImagePath(card.name)}" onerror="this.src='https://placehold.co/100x140?text=?'">
-                        <div class="conf-badge">${(card.conf * 100).toFixed(0)}%</div>
-                    </div>
-                `).join('');
-
-                // Update Players
-                const playerContainer = document.getElementById('players-container');
-                playerContainer.innerHTML = Object.keys(players).map(id => `
-                    <div class="player-box">
-                        <h3>Player ${id}</h3>
-                        <div class="card-container">
-                            ${Object.values(players[id]).map((card, i) => `
-                                <div class="card" style="animation-delay: ${(i * 0.1) + 0.5}s">
-                                    <img src="${getImagePath(card.name)}" onerror="this.src='https://placehold.co/100x140?text=?'">
-                                    <div class="conf-badge">${(card.conf * 100).toFixed(0)}%</div>
-                                </div>
-                            `).join('')}
+                flopContainer.innerHTML = Object.values(flop)
+                    .filter(card => card && card.name) 
+                    .map((card, i) => `
+                        <div class="card">
+                            <img src="${getImagePath(card.name)}" onerror="this.src='https://placehold.co/100x140?text=?'">
+                            <div class="conf-badge">${(card.conf * 100).toFixed(0)}%</div>
                         </div>
-                    </div>
-                `).join('');
+                    `).join('');
 
-                // Flash status light on successful update
-                const light = document.getElementById('status-light');
-                light.style.background = '#00ff00';
+                // Update Players with Winner Logic
+                const playerContainer = document.getElementById('players-container');
+                playerContainer.innerHTML = Object.keys(players).map(id => {
+                    const result = winData.results && winData.results[id];
+                    const isWinner = result && result.is_winner;
+
+                    return `
+                        <div class="player-box ${isWinner ? 'winner' : ''}">
+                            ${isWinner ? '<div class="winner-label">🏆 WINNER</div>' : ''}
+                            <h3>Player ${id}</h3>
+                            <div class="hand-type">${result ? result.hand_type : 'Calculating...'}</div>
+                            <div class="card-container">
+                                ${Object.values(players[id])
+                                    .filter(card => card && card.name)
+                                    .map((card, i) => `
+                                    <div class="card">
+                                        <img src="${getImagePath(card.name)}" onerror="this.src='https://placehold.co/100x140?text=?'">
+                                        <div class="conf-badge">${(card.conf * 100).toFixed(0)}%</div>
+                                    </div>
+                                `).join('')}
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+
+                document.getElementById('status-light').style.background = '#00ff00';
                 
             } catch (err) {
                 document.getElementById('status-light').style.background = 'red';
@@ -176,10 +224,8 @@
             }
         }
 
-        // Poll every 1 second for high responsiveness
         setInterval(updateDisplay, 1000);
         updateDisplay();
     </script>
 </body>
 </html>
-
