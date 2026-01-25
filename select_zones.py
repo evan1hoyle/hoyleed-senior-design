@@ -1,6 +1,6 @@
 import json
 
-def select_zones(cap,cv2,FLOP_HAND_SIZE):
+def set_zones(cap,cv2,FLOP_HAND_SIZE):
     answer = input("Do you want to draw boxs? (yes/no): ").lower()
     if answer == "yes" or answer == "y":
         f_slots = []
@@ -42,15 +42,15 @@ def select_zones(cap,cv2,FLOP_HAND_SIZE):
             json.dump(f_slots, file, indent=4) 
 
     elif answer == "no" or answer == "n":
-        with open("data/p_slots.json", "r") as file:
-            players = json.load(file)
-        with open("data/f_slots.json", "r") as file:
-            f_slots = json.load(file)
-
-
+        players, f_slots = fetch_zones()
     else:
         print("Invalid input. Please enter 'yes' or 'no'.")
+    return players, f_slots
 
-    print(players)
-    print(f_slots)
+
+def fetch_zones():
+    with open("data/p_slots.json", "r") as file:
+        players = json.load(file)
+    with open("data/f_slots.json", "r") as file:
+        f_slots = json.load(file)
     return players, f_slots
