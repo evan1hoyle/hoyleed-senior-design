@@ -17,7 +17,7 @@ def evaluate_winner():
         with open('player_cards.json', 'r') as f:
             player_data = json.load(f)
     except (FileNotFoundError, json.JSONDecodeError):
-        print("Error: Files missing or corrupted.")
+        # print("Error: Files missing or corrupted.")
         return
 
     # Convert board cards, but check if flop_data is empty first
@@ -25,7 +25,7 @@ def evaluate_winner():
     
     # 1. Check if the board is empty
     if not board:
-        print("No board cards found. Cannot evaluate.")
+        # print("No board cards found. Cannot evaluate.")
         return
 
     best_score = float('inf')
@@ -36,11 +36,16 @@ def evaluate_winner():
     
     # 2. Check if there are actually players to evaluate
     if not players_dict:
-        print("No players found in player_cards.json.")
+        # print("No players found in player_cards.json.")
         return
 
     for p_id, cards in players_dict.items():
         # Convert hand, but check if cards exist
+        has_down_cards = any(c['name'] == 'DN' for c in cards.values())
+
+        if has_down_cards:
+            continue
+
         hand = [Card.new(format_card_for_treys(c['name'])) for c in cards.values()]
         
         # 3. Handle cases where a specific player has no cards
