@@ -183,6 +183,27 @@ while True:
             elif label =="flop":
                 flop_cards[c_idx] = {'name': card_name, 'conf': max_conf, 'ts': curr_t}
 
+        elif label == "player":
+            crop = crops[i]
+            # Process the crop to find a rectangular card back
+            gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
+            blur = cv2.GaussianBlur(gray, (5, 5), 0)
+            edged = cv2.Canny(blur, 50, 150)
+            contours, _ = cv2.findContours(edged, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            
+            for cnt in contours:
+                peri = cv2.arcLength(cnt, True)
+                approx = cv2.approxPolyDP(cnt, 0.02 * peri, True)
+                # If it's roughly rectangular and takes up enough of the slot
+                if len(approx) == 4 and cv2.contourArea(cnt) > (roi_w * roi_h * 0.3):
+                    if p_idx not in player_cards: player_cards[p_idx] = {}
+                    player_cards[p_idx][c_idx] = {'name': 'DN', 'conf': 1.0, 'ts': curr_t}
+                    
+                    # Draw visual feedback for the face-down card
+                    cv2.putText(img, "DN", (roi_x + 5, roi_y + 25), 
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2)
+                    break
+
     # 4. Clear expired cards (Timeout)
     player_cards = {
         p_id: {
