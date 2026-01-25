@@ -12,9 +12,9 @@ def evaluate_winner():
     evaluator = Evaluator()
     
     try:
-        with open('flop_cards.json', 'r') as f:
+        with open('data/flop_cards.json', 'r') as f:
             flop_data = json.load(f)
-        with open('player_cards.json', 'r') as f:
+        with open('data/player_cards.json', 'r') as f:
             player_data = json.load(f)
     except (FileNotFoundError, json.JSONDecodeError):
         # print("Error: Files missing or corrupted.")
@@ -79,7 +79,7 @@ def evaluate_winner():
         "results": player_results
     }
 
-    with open('winner.json', 'w') as out_file:
+    with open('data/winner.json', 'w') as out_file:
         json.dump(output_data, out_file, indent=4)
     
 if __name__ == "__main__":

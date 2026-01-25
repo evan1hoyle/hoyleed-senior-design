@@ -11,6 +11,8 @@ CARD_TIMEOUT_SECONDS = 1.0
 CARD_IMAGES_DIR = "card_images"
 CARD_IMAGE_WIDTH, CARD_IMAGE_HEIGHT = 100, 140 
 PLAYER_HAND_SIZE, FLOP_HAND_SIZE = 2, 5
+COLOR_DIFF_THRESHOLD = 30 
+TABLE_FELT_BGR = [0, 0, 0]
 
 def open_first_available_camera():
     for index in range(10):
@@ -72,40 +74,47 @@ def select_zones(cap):
         success, frame = cap.read()
         if not success: return [], []
         
-        cv2.namedWindow("Setup - Draw 5 Boxes", cv2.WINDOW_NORMAL)
-        cv2.resizeWindow("Setup - Draw 5 Boxes", 1280, 720)
+        cv2.namedWindow("Setup", cv2.WINDOW_NORMAL)
+        cv2.resizeWindow("Setup", 1280, 720)
         
         # Select Player Slots
         while True:
-            answer = input("Do you want add another player? (yes/no): ").lower()
-            if answer == "yes" or answer == "y":
-                p_slots = []
-                for i in range(PLAYER_HAND_SIZE):
-                    print(f"Draw Player Slot {i+1} and press ENTER")
-                    roi = cv2.selectROI("Setup - Draw 5 Boxes", frame, False)
-                    p_slots.append(roi)
-                players.append(p_slots)
+            key = cv2.waitKey(0) & 0xFF
 
-            elif answer == "no" or answer == "n":
+            if key == 32:  # Space bar
+                p_slots = []
+                # selectROI naturally waits for you to finish the selection
+                roi = cv2.selectROI("Setup", frame, False)
+                
+                # Only add if the ROI has a width/height (prevents empty clicks)
+                if roi[2] > 0 and roi[3] > 0:
+                    p_slots.append(roi)
+                    players.append(p_slots)
+                    print(f"Added player at {roi}. Press Space for more or Enter to finish.")
+                else:
+                    print("Selection cancelled.")
+
+            elif key in [13, 10]:  # Enter key
+                print("Selection complete.")
                 break
                 
         # Select Flop Slots
         for i in range(FLOP_HAND_SIZE):
             print(f"Draw Flop Slot {i+1} and press ENTER")
-            roi = cv2.selectROI("Setup - Draw 5 Boxes", frame, False)
+            roi = cv2.selectROI("Setup", frame, False)
             f_slots.append(roi)
             
-        cv2.destroyWindow("Setup - Draw 5 Boxes")
+        cv2.destroyWindow("Setup")
 
-        with open("p_slots.json", "w") as file:
+        with open("data/p_slots.json", "w") as file:
             json.dump(players, file, indent=4) 
-        with open("f_slots.json", "w") as file:
+        with open("data/f_slots.json", "w") as file:
             json.dump(f_slots, file, indent=4) 
 
     elif answer == "no" or answer == "n":
-        with open("p_slots.json", "r") as file:
+        with open("data/p_slots.json", "r") as file:
             players = json.load(file)
-        with open("f_slots.json", "r") as file:
+        with open("data/f_slots.json", "r") as file:
             f_slots = json.load(file)
 
 
@@ -169,40 +178,61 @@ while True:
             cv2.putText(img, f"{card_name} {conf:.2f}", (gx1, gy1 - 10), 
                         cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
         
+        unique_detections = {}
         for box in r.boxes:
-            if box.conf[0] > max_conf:
-                max_conf = box.conf[0].item()
-                best_box = box
-        
-        if best_box:
-            card_name = classNames[int(best_box.cls[0])]
-            if label == "player":
+            conf = box.conf[0].item()
+            card_name = classNames[int(box.cls[0])]
+            
+            if card_name not in unique_detections or conf > unique_detections[card_name]['conf']:
+                unique_detections[card_name] = {'name': card_name, 'conf': conf}
+
+        sorted_cards = sorted(unique_detections.values(), key=lambda x: x['conf'], reverse=True)
+
+        if label == "player":
+            if sorted_cards:
                 if p_idx not in player_cards:
                     player_cards[p_idx] = {}
-                player_cards[p_idx][c_idx] = {'name': card_name, 'conf': max_conf, 'ts': curr_t}
-            elif label =="flop":
+
+                for i, card in enumerate(sorted_cards[:2]):
+                    player_cards[p_idx][i] = {'name': card['name'], 'conf': card['conf'], 'ts': curr_t}
+            else:
+                roi_img = img[roi_y : roi_y + roi_h, roi_x : roi_x + roi_w]
+                
+                if roi_img.size > 0:
+                    # Calculate the average color of the slot
+                    avg_bgr = cv2.mean(roi_img)[:3]
+                    
+                    # Calculate Euclidean distance between average color and table felt
+                    dist = np.linalg.norm(np.array(avg_bgr) - np.array(TABLE_FELT_BGR))
+                    
+                    if dist > COLOR_DIFF_THRESHOLD:
+                        # We found something that isn't the table, but isn't a face-up card
+                        card_name = "DN"
+                        
+                        # Draw the "DN" label on the frame
+                        cv2.rectangle(img, (roi_x, roi_y), (roi_x + roi_w, roi_y + roi_h), (255, 255, 0), 2)
+                        cv2.putText(img, "DN", (roi_x, roi_y - 10), 
+                                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 2)
+
+                        # Store in your data structures
+                        if label == "player":
+                            if p_idx not in player_cards: player_cards[p_idx] = {}
+                            player_cards[p_idx][0] = {'name': 'DN', 'conf': 1.0, 'ts': curr_t}
+                        elif label == "flop":
+                            flop_cards[c_idx] = {'name': 'DN', 'conf': 1.0, 'ts': curr_t}
+
+        elif label == "flop":
+            max_conf = 0
+            best_box = None
+            for box in r.boxes:
+                if box.conf[0] > max_conf:
+                    max_conf = box.conf[0].item()
+                    best_box = box
+                    
+            if best_box:
+                card_name = classNames[int(best_box.cls[0])]
                 flop_cards[c_idx] = {'name': card_name, 'conf': max_conf, 'ts': curr_t}
 
-        elif label == "player":
-            crop = crops[i]
-            # Process the crop to find a rectangular card back
-            gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
-            blur = cv2.GaussianBlur(gray, (5, 5), 0)
-            edged = cv2.Canny(blur, 50, 150)
-            contours, _ = cv2.findContours(edged, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-            
-            for cnt in contours:
-                peri = cv2.arcLength(cnt, True)
-                approx = cv2.approxPolyDP(cnt, 0.02 * peri, True)
-                # If it's roughly rectangular and takes up enough of the slot
-                if len(approx) == 4 and cv2.contourArea(cnt) > (roi_w * roi_h * 0.3):
-                    if p_idx not in player_cards: player_cards[p_idx] = {}
-                    player_cards[p_idx][c_idx] = {'name': 'DN', 'conf': 1.0, 'ts': curr_t}
-                    
-                    # Draw visual feedback for the face-down card
-                    cv2.putText(img, "DN", (roi_x + 5, roi_y + 25), 
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2)
-                    break
 
     # 4. Clear expired cards (Timeout)
     player_cards = {
@@ -234,9 +264,9 @@ while True:
     ui_h = 450
     ui_img = np.zeros((ui_h, ui_w, 3), dtype=np.uint8)
     
-    with open("flop_cards.json", "w") as file:
+    with open("data/flop_cards.json", "w") as file:
         json.dump(flop_cards, file, indent=4) 
-    with open("player_cards.json", "w") as file:
+    with open("data/player_cards.json", "w") as file:
         json.dump(player_cards, file, indent=4) 
 
     # 7. Show Windows
