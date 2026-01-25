@@ -1,0 +1,12 @@
+# Use absolute paths to avoid any "dataset not found" errors
+path: /home/evan/hoyleed-senior-design/backCard
+
+# Relative paths from the 'path' above
+train: images/train
+val: images/val
+
+
+# Classes
+nc: 1
+names:
+  0: card_back
