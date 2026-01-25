@@ -6,6 +6,7 @@ import os
 import json
 import calcWinner
 import select_zones
+import argparse
 
 X, Y = 1920, 1080
 CARD_TIMEOUT_SECONDS = 0.5
@@ -14,19 +15,27 @@ CARD_IMAGE_WIDTH, CARD_IMAGE_HEIGHT = 100, 140
 PLAYER_HAND_SIZE, FLOP_HAND_SIZE = 2, 5
 DN_CONF_MIN = 0.8
 
+
+parser = argparse.ArgumentParser(description='A sample program with a flag.')
+parser.add_argument('-v', '--verbose', action='store_true', help='Enable verbose output')
+parser.add_argument('-z', '--setzones', action='store_true', help='Sets zones')
+args = parser.parse_args()
+
+
 def open_first_available_camera():
     for index in range(10):
         cap = cv2.VideoCapture(index)
         if cap.isOpened():
             ret, frame = cap.read()
             if ret:
-                print(f"Successfully opened camera with index {index}")
+                if args.verbose:
+                    print(f"Successfully opened camera with index {index}")
                 return cap
             else:
                 cap.release()
         else:
             cap.release() 
-    print("Error: Could not find an available camera.")
+    raise RuntimeError("Error: Could not find an available camera.")
     return None
 
 
@@ -72,8 +81,12 @@ def load_card_image(card_name):
     CARD_IMAGE_CACHE[card_name] = resized_img
     return resized_img
 
+if args.setzones:
+    players, flop_slots = select_zones.set_zones(cap,cv2,FLOP_HAND_SIZE)
+else:
+    players, flop_slots = select_zones.fetch_zones()
 
-players, flop_slots = select_zones.select_zones(cap,cv2,FLOP_HAND_SIZE)
+
 player_cards = {} 
 flop_cards = {}
 
@@ -122,6 +135,8 @@ while True:
                 for box in r.boxes:
                     conf = box.conf[0].item()
                     name = classNames[int(box.cls[0])]
+                    if args.verbose:
+                        print(f"[VERBOSE] Detected {name} in {label} slot {i} (Conf: {conf:.2f})")
                     if name not in unique_detections or conf > unique_detections[name]['conf']:
                         unique_detections[name] = {'name': name, 'conf': conf}
                 
@@ -146,9 +161,12 @@ while True:
                 for box_back in r_back.boxes:
                     blx1, bly1, blx2, bly2 = [int(val) for val in box_back.xyxy[0]]
                     bgx1, bgy1, bgx2, bgy2 = roi_x + blx1, roi_y + bly1, roi_x + blx2, roi_y + bly2
-
-                    conf = box_back.conf[0].item()
                     
+                    conf = box_back.conf[0].item()
+
+                    if args.verbose:
+                        print(f"[VERBOSE] Detected DN in {label} slot {i} (Conf: {conf:.2f})")
+
                     if label == "player":
                         cv2.rectangle(img, (bgx1, bgy1), (bgx2, bgy2), (255, 255, 0), 2)
                         cv2.putText(img, f"DN {conf:.2f}", (bgx1, bgy1 - 10), 
@@ -160,6 +178,17 @@ while True:
                     for idx in range(min(len(r_back.boxes), 2)):
                         player_cards[p_idx][idx] = {'name': 'DN', 'conf': r_back.boxes[idx].conf[0].item(), 'ts': curr_t}
 
+
+
+    if args.verbose:
+        for p_id, cards in player_cards.items():
+            for c_idx, data in cards.items():
+                if curr_t - data['ts'] >= CARD_TIMEOUT_SECONDS:
+                    print(f"[TIMEOUT] Player {p_id+1}, Card Slot {c_idx+1} ({data['name']}) removed after {CARD_TIMEOUT_SECONDS}s")
+    if args.verbose:
+        for c_idx, data in flop_cards.items():
+            if curr_t - data['ts'] >= CARD_TIMEOUT_SECONDS:
+                print(f"[TIMEOUT] Flop Slot {c_idx+1} ({data['name']}) removed after {CARD_TIMEOUT_SECONDS}s")
 
     player_cards = {
         p_id: {
@@ -188,7 +217,16 @@ while True:
     ui_w = (5 * (CARD_IMAGE_WIDTH + 20)) + 40
     ui_h = 450
     ui_img = np.zeros((ui_h, ui_w, 3), dtype=np.uint8)
-    
+
+    if args.verbose:
+        active_players = [p for p, cards in player_cards.items() if len(cards) > 0]
+        active_flop = len(flop_cards)
+        print(f"--- Frame Summary ---")
+        print(f"Active Players: {active_players} | Cards on Flop: {active_flop}")
+
+        processing_time = (time.time() - curr_t) * 1000
+        print(f"Frame Processing Time: {processing_time:.2f}ms")
+        
     with open("data/flop_cards.json", "w") as file:
         json.dump(flop_cards, file, indent=4) 
     with open("data/player_cards.json", "w") as file:
