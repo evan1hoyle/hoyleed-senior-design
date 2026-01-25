@@ -5,16 +5,39 @@ import time
 import os
 import json
 
-
-# --- Configuration ---
 X, Y = 1920, 1080
-CARD_TIMEOUT_SECONDS = 4.0 
+CARD_TIMEOUT_SECONDS = 1.0 
 CARD_IMAGES_DIR = "card_images"
 CARD_IMAGE_WIDTH, CARD_IMAGE_HEIGHT = 100, 140 
 PLAYER_HAND_SIZE, FLOP_HAND_SIZE = 2, 5
 
-# --- Initialize YOLO ---
-# Note: Ensure this file is in your script directory
+def open_first_available_camera():
+    """
+    Attempts to open the first available and working camera by iterating through indices.
+    """
+    # Start checking from index 0
+    for index in range(10): # Check a reasonable range of indices (0 to 9)
+        cap = cv2.VideoCapture(index)
+        if cap.isOpened():
+            # Check if we can successfully read a frame
+            ret, frame = cap.read()
+            if ret:
+                print(f"Successfully opened camera with index {index}")
+                return cap # Return the working VideoCapture object
+            else:
+                # If read fails, the camera might not be working correctly even if opened
+                cap.release()
+        else:
+            cap.release() # Release the object if not opened
+
+    print("Error: Could not find an available camera.")
+    return None
+
+
+cap = open_first_available_camera()
+cap.set(3, X)
+cap.set(4, Y)
+
 model = YOLO("yolov8s_playing_cards.pt")
 
 classNames = [
@@ -25,8 +48,6 @@ classNames = [
     'JC', 'JD', 'JH', 'JS', 'KC', 'KD', 'KH', 'KS', 'QC', 'QD', 
     'QH', 'QS'
 ]
-
-# --- Helper functions ---
 
 def get_card_file_name(card_name):
     rank, suit = card_name[:-1], card_name[-1]
@@ -52,8 +73,6 @@ def load_card_image(card_name):
 def select_zones(cap):
     answer = input("Do you want to draw boxs? (yes/no): ").lower()
     if answer == "yes" or answer == "y":
-        print("Continuing...")
-        
         f_slots = []
         players = []
         success, frame = cap.read()
@@ -103,36 +122,40 @@ def select_zones(cap):
     print(f_slots)
     return players, f_slots
 
-# --- Main Logic ---
-cap = cv2.VideoCapture(1)
-cap.set(3, X)
-cap.set(4, Y)
 
-# Initial Setup
 players, flop_slots = select_zones(cap)
-# Data structure: {slot_index: {'name': str, 'conf': float, 'ts': float}}
-player_data = {} 
-flop_data = {}
+player_cards = {} 
+flop_cards = {}
 
 while True:
     success, img = cap.read()
     if not success: break
     curr_t = time.time()
 
+    # p_slots = [(x, 'player') for sublist in players for x in sublist]
+    # flop_labeled = [(x, 'flop') for x in flop_slots]
 
-    p_slots = [(x, 'player') for sublist in players for x in sublist]
-    flop_labeled = [(x, 'flop') for x in flop_slots]
+    p_slots = []
+    for p_idx, hand in enumerate(players, start=0):
+        for c_idx, card in enumerate(hand, start=0):
+            p_slots.append((card, 'player', p_idx, c_idx))
+
+    flop_labeled = []
+    for f_idx, card in enumerate(flop_slots, start=0):
+        flop_labeled.append((card, 'flop', 0,f_idx))
+
+
+
     all_slots = p_slots + flop_labeled
     crops = []
-    for (x, y, w, h), label in all_slots:
+    for (x, y, w, h), label, p_idx,c_idx in all_slots:
         crop = img[int(y):int(y+h), int(x):int(x+w)]
         if crop.size > 0:
             crops.append(crop)
         else:
             crops.append(np.zeros((100, 100, 3), dtype=np.uint8))
 
-    # 2. Batch Inference
-    # Processing all 5 zones in one go is very efficient
+
     results = model(crops, conf=0.4, verbose=False)
 
     # 3. Update detected cards
@@ -140,7 +163,7 @@ while True:
         best_box = None
         max_conf = 0
 
-        (roi_x, roi_y, roi_w, roi_h), label = all_slots[i]
+        (roi_x, roi_y, roi_w, roi_h), label, p_idx,c_idx = all_slots[i]
     
         for box in r.boxes:
             # 1. Get local coordinates (relative to the small crop)
@@ -166,23 +189,34 @@ while True:
         if best_box:
             card_name = classNames[int(best_box.cls[0])]
             if label == "player":
-                player_data[i] = {'name': card_name, 'conf': max_conf, 'ts': curr_t}
+                if p_idx not in player_cards:
+                    player_cards[p_idx] = {}
+                player_cards[p_idx][c_idx] = {'name': card_name, 'conf': max_conf, 'ts': curr_t}
             elif label =="flop":
-                flop_data[i - PLAYER_HAND_SIZE] = {'name': card_name, 'conf': max_conf, 'ts': curr_t}
+                flop_cards[c_idx] = {'name': card_name, 'conf': max_conf, 'ts': curr_t}
 
     # 4. Clear expired cards (Timeout)
-    player_data = {k: v for k, v in player_data.items() if curr_t - v['ts'] < CARD_TIMEOUT_SECONDS}
-    flop_data = {k: v for k, v in flop_data.items() if curr_t - v['ts'] < CARD_TIMEOUT_SECONDS}
+    player_cards = {
+        p_id: {
+            c_idx: data for c_idx, data in cards.items() 
+            if curr_t - data['ts'] < CARD_TIMEOUT_SECONDS
+        }
+        for p_id, cards in player_cards.items()
+    }
+    flop_cards = {
+        c_idx: data for c_idx, data in flop_cards.items() 
+        if curr_t - data['ts'] < CARD_TIMEOUT_SECONDS
+    }
 
     # 5. Drawing Zones on Main Feed
     for player_num,player in enumerate(players):
         for box_num, (x, y, w, h) in enumerate(player):
-            color = (0, 255, 0) if box_num in player_data else (0, 0, 255)
+            color = (0, 255, 0) if box_num in player_cards else (0, 0, 255)
             cv2.rectangle(img, (int(x), int(y)), (int(x+w), int(y+h)), color, 2)
             cv2.putText(img, f"Player {player_num+1} Card {box_num+1}",(int(x), int(y-10)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
 
     for i, (x, y, w, h) in enumerate(flop_slots):
-        color = (0, 255, 0) if i in flop_data else (255, 0, 0)
+        color = (0, 255, 0) if i in flop_cards else (255, 0, 0)
         cv2.rectangle(img, (int(x), int(y)), (int(x+w), int(y+h)), color, 2)
         cv2.putText(img, f"Flop {i+1}", (int(x), int(y-10)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
 
@@ -190,45 +224,22 @@ while True:
     ui_w = (5 * (CARD_IMAGE_WIDTH + 20)) + 40
     ui_h = 450
     ui_img = np.zeros((ui_h, ui_w, 3), dtype=np.uint8)
-
-    # Render Player UI
-    cv2.putText(ui_img, "PLAYER HAND", (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
-    for i in player_data:
-        x_off = 20 + (i * (CARD_IMAGE_WIDTH + 20))
-        cv2.rectangle(ui_img, (x_off, 60), (x_off+CARD_IMAGE_WIDTH, 60+CARD_IMAGE_HEIGHT), (50, 50, 50), 1)
-        if i in player_data:
-            c_img = load_card_image(player_data[i]['name'])
-            if c_img is not None:
-                ui_img[60:60+CARD_IMAGE_HEIGHT, x_off:x_off+CARD_IMAGE_WIDTH] = c_img
-                cv2.putText(ui_img, f"{player_data[i]['conf']:.2f}", (x_off, 220), 1, 1, (255,255,255), 1)
-
-    # Render Flop UI
-    cv2.putText(ui_img, "FLOP", (20, 260), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 0, 0), 2)
-    for idx, (key, data) in enumerate(flop_data.items()):
-        x_off = 20 + (idx * (CARD_IMAGE_WIDTH + 20))
-        
-        # Safety check: Ensure the slice doesn't exceed image boundaries
-        if x_off + CARD_IMAGE_WIDTH <= ui_img.shape[1]:
-            c_img = load_card_image(data['name'])
-            if c_img is not None:
-                # Check if c_img needs resizing to match CARD_IMAGE constants
-                if c_img.shape[0] != CARD_IMAGE_HEIGHT or c_img.shape[1] != CARD_IMAGE_WIDTH:
-                    c_img = cv2.resize(c_img, (CARD_IMAGE_WIDTH, CARD_IMAGE_HEIGHT))
-                    
-                ui_img[280:280+CARD_IMAGE_HEIGHT, x_off:x_off+CARD_IMAGE_WIDTH] = c_img
-                cv2.putText(ui_img, f"{data['conf']:.2f}", (x_off, 440), 1, 1, (255,255,255), 1)
+    
+    with open("flop_cards.json", "w") as file:
+        json.dump(flop_cards, file, indent=4) 
+    with open("player_cards.json", "w") as file:
+        json.dump(player_cards, file, indent=4) 
 
     # 7. Show Windows
     cv2.imshow('Main Camera Feed (R to Reset Zones, Q to Quit)', img)
-    cv2.imshow('Detected Cards UI', ui_img)
 
     key = cv2.waitKey(1)
     if key == ord('q'):
         break
     elif key == ord('r'):
         player_slots, flop_slots = select_zones(cap)
-        player_data.clear()
-        flop_data.clear()
+        player_cards.clear()
+        flop_cards.clear()
 
 
 cap.release()
