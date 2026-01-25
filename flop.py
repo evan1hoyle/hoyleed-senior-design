@@ -5,14 +5,14 @@ import time
 import os
 import json
 import calcWinner
+import select_zones
 
 X, Y = 1920, 1080
-CARD_TIMEOUT_SECONDS = 1.0 
+CARD_TIMEOUT_SECONDS = 0.5
 CARD_IMAGES_DIR = "card_images"
 CARD_IMAGE_WIDTH, CARD_IMAGE_HEIGHT = 100, 140 
 PLAYER_HAND_SIZE, FLOP_HAND_SIZE = 2, 5
-COLOR_DIFF_THRESHOLD = 30 
-TABLE_FELT_BGR = [0, 0, 0]
+DN_CONF_MIN = 0.8
 
 def open_first_available_camera():
     for index in range(10):
@@ -35,6 +35,12 @@ cap.set(3, X)
 cap.set(4, Y)
 
 model = YOLO("yolov8s_playing_cards.pt")
+model.to('cuda')
+
+
+modelBack = YOLO('runs/detect/train6/weights/best.pt')
+modelBack.to('cuda')
+
 
 classNames = [
     '10C', '10D', '10H', '10S', '2C', '2D', '2H', '2S', '3C', '3D', 
@@ -66,67 +72,8 @@ def load_card_image(card_name):
     CARD_IMAGE_CACHE[card_name] = resized_img
     return resized_img
 
-def select_zones(cap):
-    answer = input("Do you want to draw boxs? (yes/no): ").lower()
-    if answer == "yes" or answer == "y":
-        f_slots = []
-        players = []
-        success, frame = cap.read()
-        if not success: return [], []
-        
-        cv2.namedWindow("Setup", cv2.WINDOW_NORMAL)
-        cv2.resizeWindow("Setup", 1280, 720)
-        
-        # Select Player Slots
-        while True:
-            key = cv2.waitKey(0) & 0xFF
 
-            if key == 32:  # Space bar
-                p_slots = []
-                # selectROI naturally waits for you to finish the selection
-                roi = cv2.selectROI("Setup", frame, False)
-                
-                # Only add if the ROI has a width/height (prevents empty clicks)
-                if roi[2] > 0 and roi[3] > 0:
-                    p_slots.append(roi)
-                    players.append(p_slots)
-                    print(f"Added player at {roi}. Press Space for more or Enter to finish.")
-                else:
-                    print("Selection cancelled.")
-
-            elif key in [13, 10]:  # Enter key
-                print("Selection complete.")
-                break
-                
-        # Select Flop Slots
-        for i in range(FLOP_HAND_SIZE):
-            print(f"Draw Flop Slot {i+1} and press ENTER")
-            roi = cv2.selectROI("Setup", frame, False)
-            f_slots.append(roi)
-            
-        cv2.destroyWindow("Setup")
-
-        with open("data/p_slots.json", "w") as file:
-            json.dump(players, file, indent=4) 
-        with open("data/f_slots.json", "w") as file:
-            json.dump(f_slots, file, indent=4) 
-
-    elif answer == "no" or answer == "n":
-        with open("data/p_slots.json", "r") as file:
-            players = json.load(file)
-        with open("data/f_slots.json", "r") as file:
-            f_slots = json.load(file)
-
-
-    else:
-        print("Invalid input. Please enter 'yes' or 'no'.")
-
-    print(players)
-    print(f_slots)
-    return players, f_slots
-
-
-players, flop_slots = select_zones(cap)
+players, flop_slots = select_zones.select_zones(cap,cv2,FLOP_HAND_SIZE)
 player_cards = {} 
 flop_cards = {}
 
@@ -154,87 +101,66 @@ while True:
             crops.append(np.zeros((100, 100, 3), dtype=np.uint8))
 
     results = model(crops, conf=0.4, verbose=False)
+    resultsBack = modelBack(crops, conf=DN_CONF_MIN, verbose=False)
 
-    # 3. Update detected cards
     for i, r in enumerate(results):
-        best_box = None
-        max_conf = 0
-
-        (roi_x, roi_y, roi_w, roi_h), label, p_idx,c_idx = all_slots[i]
-    
-        for box in r.boxes:
-            # 1. Get local coordinates (relative to the small crop)
-            lx1, ly1, lx2, ly2 = [int(val) for val in box.xyxy[0]]
+            (roi_x, roi_y, roi_w, roi_h), label, p_idx, c_idx = all_slots[i]
+            r_back = resultsBack[i]
             
-            # 2. Translate to global coordinates (relative to the 1080p frame)
-            gx1, gy1 = roi_x + lx1, roi_y + ly1
-            gx2, gy2 = roi_x + lx2, roi_y + ly2
+            if len(r.boxes) > 0:
+                for box in r.boxes:
+                    lx1, ly1, lx2, ly2 = [int(val) for val in box.xyxy[0]]
+                    gx1, gy1, gx2, gy2 = roi_x + lx1, roi_y + ly1, roi_x + lx2, roi_y + ly2
 
-            # 3. Draw detection directly onto the original high-res image
-            cv2.rectangle(img, (gx1, gy1), (gx2, gy2), (0, 255, 0), 2)
-            
-            card_name = classNames[int(box.cls[0])]
-            conf = box.conf[0].item()
-            cv2.putText(img, f"{card_name} {conf:.2f}", (gx1, gy1 - 10), 
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
-        
-        unique_detections = {}
-        for box in r.boxes:
-            conf = box.conf[0].item()
-            card_name = classNames[int(box.cls[0])]
-            
-            if card_name not in unique_detections or conf > unique_detections[card_name]['conf']:
-                unique_detections[card_name] = {'name': card_name, 'conf': conf}
-
-        sorted_cards = sorted(unique_detections.values(), key=lambda x: x['conf'], reverse=True)
-
-        if label == "player":
-            if sorted_cards:
-                if p_idx not in player_cards:
-                    player_cards[p_idx] = {}
-
-                for i, card in enumerate(sorted_cards[:2]):
-                    player_cards[p_idx][i] = {'name': card['name'], 'conf': card['conf'], 'ts': curr_t}
-            else:
-                roi_img = img[roi_y : roi_y + roi_h, roi_x : roi_x + roi_w]
+                    cv2.rectangle(img, (gx1, gy1), (gx2, gy2), (0, 255, 0), 2)
+                    card_name = classNames[int(box.cls[0])]
+                    conf = box.conf[0].item()
+                    cv2.putText(img, f"{card_name} {conf:.2f}", (gx1, gy1 - 10), 
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+                    
+                unique_detections = {}
+                for box in r.boxes:
+                    conf = box.conf[0].item()
+                    name = classNames[int(box.cls[0])]
+                    if name not in unique_detections or conf > unique_detections[name]['conf']:
+                        unique_detections[name] = {'name': name, 'conf': conf}
                 
-                if roi_img.size > 0:
-                    # Calculate the average color of the slot
-                    avg_bgr = cv2.mean(roi_img)[:3]
+                sorted_cards = sorted(unique_detections.values(), key=lambda x: x['conf'], reverse=True)
+                if label == "player":
+                    if p_idx not in player_cards: player_cards[p_idx] = {}
+                    for idx, card in enumerate(sorted_cards[:2]):
+                        player_cards[p_idx][idx] = {'name': card['name'], 'conf': card['conf'], 'ts': curr_t}
+                elif label == "flop":
+                    max_conf = 0
+                    best_box = None
+                    for box in r.boxes:
+                        if box.conf[0] > max_conf:
+                            max_conf = box.conf[0].item()
+                            best_box = box
+                            
+                    if best_box:
+                        card_name = classNames[int(best_box.cls[0])]
+                        flop_cards[c_idx] = {'name': card_name, 'conf': max_conf, 'ts': curr_t}
+
+            elif len(r_back.boxes) > 0:
+                for box_back in r_back.boxes:
+                    blx1, bly1, blx2, bly2 = [int(val) for val in box_back.xyxy[0]]
+                    bgx1, bgy1, bgx2, bgy2 = roi_x + blx1, roi_y + bly1, roi_x + blx2, roi_y + bly2
+
+                    conf = box_back.conf[0].item()
                     
-                    # Calculate Euclidean distance between average color and table felt
-                    dist = np.linalg.norm(np.array(avg_bgr) - np.array(TABLE_FELT_BGR))
-                    
-                    if dist > COLOR_DIFF_THRESHOLD:
-                        # We found something that isn't the table, but isn't a face-up card
-                        card_name = "DN"
-                        
-                        # Draw the "DN" label on the frame
-                        cv2.rectangle(img, (roi_x, roi_y), (roi_x + roi_w, roi_y + roi_h), (255, 255, 0), 2)
-                        cv2.putText(img, "DN", (roi_x, roi_y - 10), 
+                    if label == "player":
+                        cv2.rectangle(img, (bgx1, bgy1), (bgx2, bgy2), (255, 255, 0), 2)
+                        cv2.putText(img, f"DN {conf:.2f}", (bgx1, bgy1 - 10), 
                                     cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 2)
 
-                        # Store in your data structures
-                        if label == "player":
-                            if p_idx not in player_cards: player_cards[p_idx] = {}
-                            player_cards[p_idx][0] = {'name': 'DN', 'conf': 1.0, 'ts': curr_t}
-                        elif label == "flop":
-                            flop_cards[c_idx] = {'name': 'DN', 'conf': 1.0, 'ts': curr_t}
 
-        elif label == "flop":
-            max_conf = 0
-            best_box = None
-            for box in r.boxes:
-                if box.conf[0] > max_conf:
-                    max_conf = box.conf[0].item()
-                    best_box = box
-                    
-            if best_box:
-                card_name = classNames[int(best_box.cls[0])]
-                flop_cards[c_idx] = {'name': card_name, 'conf': max_conf, 'ts': curr_t}
+                if label == "player":
+                    if p_idx not in player_cards: player_cards[p_idx] = {}
+                    for idx in range(min(len(r_back.boxes), 2)):
+                        player_cards[p_idx][idx] = {'name': 'DN', 'conf': r_back.boxes[idx].conf[0].item(), 'ts': curr_t}
 
 
-    # 4. Clear expired cards (Timeout)
     player_cards = {
         p_id: {
             c_idx: data for c_idx, data in cards.items() 
@@ -247,7 +173,7 @@ while True:
         if curr_t - data['ts'] < CARD_TIMEOUT_SECONDS
     }
 
-    # 5. Drawing Zones on Main Feed
+
     for player_num,player in enumerate(players):
         for box_num, (x, y, w, h) in enumerate(player):
             color = (0, 255, 0) if box_num in player_cards else (0, 0, 255)
@@ -259,7 +185,6 @@ while True:
         cv2.rectangle(img, (int(x), int(y)), (int(x+w), int(y+h)), color, 2)
         cv2.putText(img, f"Flop {i+1}", (int(x), int(y-10)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
 
-    # 6. Build Graphical UI Window
     ui_w = (5 * (CARD_IMAGE_WIDTH + 20)) + 40
     ui_h = 450
     ui_img = np.zeros((ui_h, ui_w, 3), dtype=np.uint8)
@@ -269,7 +194,6 @@ while True:
     with open("data/player_cards.json", "w") as file:
         json.dump(player_cards, file, indent=4) 
 
-    # 7. Show Windows
     cv2.imshow('Main Camera Feed (R to Reset Zones, Q to Quit)', img)
 
     key = cv2.waitKey(1)
@@ -279,8 +203,11 @@ while True:
         player_slots, flop_slots = select_zones(cap)
         player_cards.clear()
         flop_cards.clear()
-
-    calcWinner.evaluate_winner()
+    
+    try:
+        calcWinner.evaluate_winner()
+    except Exception as e:
+        print(f"An unexpected error occurred: {e}")
 
 
 cap.release()
