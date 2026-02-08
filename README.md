@@ -34,7 +34,7 @@ set zones for first run.
 
 ```
 python -m http.server 8080
-navigate to [localhost:8080](localhost:8080)
+navigate to localhost:8080
 
 ```
 
