@@ -18,25 +18,25 @@ cd Playing-Cards-Detection-with-YoloV8
 pip install ultralytics==8.0.0
 ```
 
-- Do Tracking with mentioned command below
+- Start tracking 
 ```
 
-yolo task=detect mode=predict model="./yolov8s_playing_cards.pt" source="./assets/test.jpg"
+python flop.py
+options:
+  -h, --help      show this help message and exit
+  -v, --verbose   Enable verbose output
+  -z, --setzones  Sets zones
 
-python filename.py
+set zones for first run.
+
+
+
 ```
 
 
 
 ### Results
-<table>
-  <tr>
-    <td>Playing-Cards-Detection-with-YoloV8</td>
-  </tr>
-  <tr>
-    <td><img src="https://github.com/noorkhokhar99/Playing-Cards-Detection-with-YoloV8/blob/main/Blue%20Bold%20Business%20YouTube%20Thumbnail.png"></td>
-  </tr>
- </table>
+
 
 
 
