@@ -1,4 +1,4 @@
-# Playing-Cards-Detection-with-YoloV8
+# Poker Tracker
 
 
 ### Steps to run Code
