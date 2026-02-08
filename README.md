@@ -29,7 +29,12 @@ options:
 
 set zones for first run.
 
+```
+- website
 
+```
+python -m http.server 8080
+navigate to [localhost:8080](localhost:8080)
 
 ```
 
@@ -37,6 +42,15 @@ set zones for first run.
 
 ### Results
 
+## Live GUI
 
+<p align="center">
+  <img src="GUI.png" width="600">
+</p>
 
+## Live computer vision 
+
+<p align="center">
+  <img src="tracker.png" width="600">
+</p>
 
