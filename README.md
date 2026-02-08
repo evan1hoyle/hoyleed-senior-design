@@ -1,19 +1,9 @@
 # Poker Tracker
 
 
-### Steps to run Code
+### Steps 
 
-- Clone the repository
-```
-git clone https://github.com/noorkhokhar99/Playing-Cards-Detection-with-YoloV8.git
-```
-
-- Goto cloned folder
-```
-cd Playing-Cards-Detection-with-YoloV8
-```
-
-- Install the ultralytics package
+- requirements
 ```
 pip install ultralytics==8.0.0
 ```
