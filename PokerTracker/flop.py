@@ -46,17 +46,17 @@ cap = open_first_available_camera()
 cap.set(3, X)
 cap.set(4, Y)
 
-model = YOLO("/home/evan/projects/hoyleed-senior-design/PokerTracker/yolov8s_playing_cards.pt")
+model = YOLO("/home/evan/Documents/senior-design/hoyleed-senior-design/PokerTracker/yolov8s_playing_cards.pt")
 model.to('cuda')
 
 
-modelBack = YOLO('/home/evan/projects/hoyleed-senior-design/PokerTracker/runs/detect/train6/weights/best.pt')
+modelBack = YOLO('/home/evan/Documents/senior-design/hoyleed-senior-design/PokerTracker/runs/detect/train6/weights/best.pt')
 modelBack.to('cuda')
 
 
 detection_model = AutoDetectionModel.from_pretrained(
     model_type="ultralytics",
-    model_path="/home/evan/projects/hoyleed-senior-design/PokerTracker/chips/best5.pt",
+    model_path="/home/evan/Documents/senior-design/hoyleed-senior-design/PokerTracker/chips/best5.pt",
     confidence_threshold=0.5,
     device="cuda" 
 )

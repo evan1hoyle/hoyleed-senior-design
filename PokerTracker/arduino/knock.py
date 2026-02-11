@@ -24,9 +24,8 @@ try:
                     "type": "check_event",
                     "data": line.replace("Check:", "").strip()
                 }
-                with open("../data/last_check.json", "w") as f:
+                with open("data/last_check.json", "w") as f:
                     f.write(json.dumps(entry) + "\n")
-                f.close()
                     
             if "SUCCESS" in line:
                 print(">>> Action triggered in Python!")
