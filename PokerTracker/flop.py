@@ -46,11 +46,11 @@ cap = open_first_available_camera()
 cap.set(3, X)
 cap.set(4, Y)
 
-model = YOLO("/home/evan/Documents/senior-design/hoyleed-senior-design/PokerTracker/yolov8s_playing_cards.pt")
+model = YOLO("PokerTracker/models/yolov8s_playing_cards.pt")
 model.to('cuda')
 
 
-modelBack = YOLO('/home/evan/Documents/senior-design/hoyleed-senior-design/PokerTracker/runs/detect/train6/weights/best.pt')
+modelBack = YOLO('PokerTracker/backCard/runs/detect/train6/weights/best.pt')
 modelBack.to('cuda')
 
 

@@ -167,9 +167,9 @@
             try {
                 const ts = new Date().getTime();
                 const [pRes, fRes, wRes] = await Promise.all([
-                    fetch(`data/player_cards.json?t=${ts}`),
-                    fetch(`data/flop_cards.json?t=${ts}`),
-                    fetch(`data/winner.json?t=${ts}`)
+                    fetch(`/data/player_cards.json?t=${ts}`),
+                    fetch(`/data/flop_cards.json?t=${ts}`),
+                    fetch(`/data/winner.json?t=${ts}`)
                 ]);
 
                 const players = await pRes.json();

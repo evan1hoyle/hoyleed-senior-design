@@ -24,7 +24,7 @@ try:
                     "type": "check_event",
                     "data": line.replace("Check:", "").strip()
                 }
-                with open("data/last_check.json", "w") as f:
+                with open("PokerTracker/data/last_check.json", "w") as f:
                     f.write(json.dumps(entry) + "\n")
                     
             if "SUCCESS" in line:
