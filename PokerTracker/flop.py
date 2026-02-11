@@ -7,13 +7,16 @@ import json
 import calcWinner
 import select_zones
 import argparse
+from sahi import AutoDetectionModel
+from sahi.predict import get_prediction
+
 
 X, Y = 1920, 1080
 CARD_TIMEOUT_SECONDS = 0.5
-CARD_IMAGES_DIR = "card_images"
+CARD_IMAGES_DIR = "PokerTracker/card_images"
 CARD_IMAGE_WIDTH, CARD_IMAGE_HEIGHT = 100, 140 
 PLAYER_HAND_SIZE, FLOP_HAND_SIZE = 2, 5
-DN_CONF_MIN = 0.8
+DN_CONF_MIN = 0.85
 
 
 parser = argparse.ArgumentParser(description='A sample program with a flag.')
@@ -43,12 +46,21 @@ cap = open_first_available_camera()
 cap.set(3, X)
 cap.set(4, Y)
 
-model = YOLO("yolov8s_playing_cards.pt")
+model = YOLO("/home/evan/projects/hoyleed-senior-design/PokerTracker/yolov8s_playing_cards.pt")
 model.to('cuda')
 
 
-modelBack = YOLO('runs/detect/train6/weights/best.pt')
+modelBack = YOLO('/home/evan/projects/hoyleed-senior-design/PokerTracker/runs/detect/train6/weights/best.pt')
 modelBack.to('cuda')
+
+
+detection_model = AutoDetectionModel.from_pretrained(
+    model_type="ultralytics",
+    model_path="/home/evan/projects/hoyleed-senior-design/PokerTracker/chips/best5.pt",
+    confidence_threshold=0.5,
+    device="cuda" 
+)
+
 
 
 classNames = [
@@ -115,6 +127,51 @@ while True:
 
     results = model(crops, conf=0.4, verbose=False)
     resultsBack = modelBack(crops, conf=DN_CONF_MIN, verbose=False)
+
+
+    all_detections = []
+    current_time = time.strftime("%Y-%m-%d %H:%M:%S")
+
+    for p_idx, hand_zones in enumerate(players):
+        for z_idx, (zx, zy, zw, zh) in enumerate(hand_zones):
+            roi = img[int(zy):int(zy+zh), int(zx):int(zx+zw)]
+            
+            if roi.size == 0:
+                continue
+
+
+            result = get_prediction(roi, detection_model)
+
+            for prediction in result.object_prediction_list:
+                bbox = prediction.bbox.to_xyxy() # [lx1, ly1, lx2, ly2] (local to crop)
+                label = prediction.category.name
+                score = prediction.score.value
+
+                gx1, gy1 = int(bbox[0] + zx), int(bbox[1] + zy)
+                gx2, gy2 = int(bbox[2] + zx), int(bbox[3] + zy)
+
+                chip_data = {
+                    "player_index": p_idx,
+                    "zone_index": z_idx,
+                    "label": label,
+                    "confidence": round(float(score), 3),
+                    "bbox": [gx1, gy1, gx2, gy2]
+                }
+                all_detections.append(chip_data)
+                
+
+                cv2.rectangle(img, (gx1, gy1), (gx2, gy2), (0, 255, 0), 2)
+                cv2.putText(img, f"P{p_idx+1}: {label}", (gx1, gy1-10), 
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+
+        for (zx, zy, zw, zh) in hand_zones:
+            cv2.rectangle(img, (int(zx), int(zy)), (int(zx+zw), int(zy+zh)), (0, 0, 255), 1)
+
+
+    output_file = "PokerTracker/data/detected_chips.json"
+    with open(output_file, "w") as f:
+        json.dump({"timestamp": current_time, "detections": all_detections}, f, indent=4)
+    f.close()
 
     for i, r in enumerate(results):
             (roi_x, roi_y, roi_w, roi_h), label, p_idx, c_idx = all_slots[i]
@@ -227,10 +284,13 @@ while True:
         processing_time = (time.time() - curr_t) * 1000
         print(f"Frame Processing Time: {processing_time:.2f}ms")
         
-    with open("data/flop_cards.json", "w") as file:
+    with open("PokerTracker/data/flop_cards.json", "w") as file:
         json.dump(flop_cards, file, indent=4) 
-    with open("data/player_cards.json", "w") as file:
+    file.close()
+    with open("PokerTracker/data/player_cards.json", "w") as file:
         json.dump(player_cards, file, indent=4) 
+    file.close()
+
 
     cv2.imshow('Main Camera Feed (R to Reset Zones, Q to Quit)', img)
 

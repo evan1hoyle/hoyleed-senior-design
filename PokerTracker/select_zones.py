@@ -36,9 +36,9 @@ def set_zones(cap,cv2,FLOP_HAND_SIZE):
             
         cv2.destroyWindow("Setup")
 
-        with open("data/p_slots.json", "w") as file:
+        with open("PokerTracker/data/p_slots.json", "w") as file:
             json.dump(players, file, indent=4) 
-        with open("data/f_slots.json", "w") as file:
+        with open("PokerTracker/data/f_slots.json", "w") as file:
             json.dump(f_slots, file, indent=4) 
 
     elif answer == "no" or answer == "n":
@@ -49,8 +49,8 @@ def set_zones(cap,cv2,FLOP_HAND_SIZE):
 
 
 def fetch_zones():
-    with open("data/p_slots.json", "r") as file:
+    with open("PokerTracker/data/p_slots.json", "r") as file:
         players = json.load(file)
-    with open("data/f_slots.json", "r") as file:
+    with open("PokerTracker/data/f_slots.json", "r") as file:
         f_slots = json.load(file)
     return players, f_slots
