@@ -2,7 +2,7 @@ import subprocess
 
 # Configuration
 arduino_cli_path = "arduino-cli" 
-sketch_path = "/home/evan/hoyleed-senior-design/arduino"
+sketch_path = "/home/evan/projects/hoyleed-senior-design/PokerTracker/arduino"
 board_type = "arduino:avr:uno"
 port = "/dev/ttyACM0" 
 

@@ -23,7 +23,7 @@
 
 
 const int knockSensor = A0;  
-const int threshold = 770;   
+const int threshold = 800;   
 const int knockWindow = 500; 
 
 int knockCount = 0;
@@ -39,6 +39,7 @@ void loop() {
   if (sensorReading >= threshold) {
     unsigned long currentTime = millis();
 
+    
 
     if (knockCount == 0) {
       knockCount = 1;
