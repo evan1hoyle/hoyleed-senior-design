@@ -7,8 +7,11 @@ import json
 import calcWinner
 import select_zones
 import argparse
+import base64
+from flask import Flask, request, jsonify
 from sahi import AutoDetectionModel
 from sahi.predict import get_prediction
+
 
 
 X, Y = 1920, 1080
@@ -21,58 +24,15 @@ DN_CONF_MIN = 0.80
 
 parser = argparse.ArgumentParser(description='A sample program with a flag.')
 parser.add_argument('-v', '--verbose', action='store_true', help='Enable verbose output')
-parser.add_argument('-z', '--setzones', action='store_true', help='Sets zones')
 args = parser.parse_args()
 
 
-def apply_clahe(gpu_img):
-    # Convert to LAB color space to equalize only the lightness channel
-    lab = cv2.cvtColor(gpu_img, cv2.COLOR_BGR2LAB)
-    l, a, b = cv2.split(lab)
-    
-    # clipLimit 2.0-3.0 is usually the sweet spot for YOLO
-    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
-    cl = clahe.apply(l)
-    
-    limg = cv2.merge((cl,a,b))
-    return cv2.cvtColor(limg, cv2.COLOR_LAB2BGR)
-
-
-def adjust_gamma(image, gamma=1.2):
-    invGamma = 1.0 / gamma
-    table = np.array([((i / 255.0) ** invGamma) * 255
-                      for i in np.arange(0, 256)]).astype("uint8")
-    return cv2.LUT(image, table)
-
-
-def open_first_available_camera():
-    for index in range(10):
-        cap = cv2.VideoCapture(index)
-        if cap.isOpened():
-            ret, frame = cap.read()
-            if ret:
-                if args.verbose:
-                    print(f"Successfully opened camera with index {index}")
-                return cap
-            else:
-                cap.release()
-        else:
-            cap.release() 
-    raise RuntimeError("Error: Could not find an available camera.")
-    return None
-
-
-cap = open_first_available_camera()
-cap.set(3, X)
-cap.set(4, Y)
 
 model = YOLO("PokerTracker/models/yolov8s_playing_cards.pt")
 model.to('cuda')
 
-
 modelBack = YOLO('PokerTracker/backCard/runs/detect/train6/weights/best.pt')
 modelBack.to('cuda')
-
 
 detection_model = AutoDetectionModel.from_pretrained(
     model_type="ultralytics",
@@ -80,8 +40,6 @@ detection_model = AutoDetectionModel.from_pretrained(
     confidence_threshold=0.5,
     device="cuda" 
 )
-
-
 
 classNames = [
     '10C', '10D', '10H', '10S', '2C', '2D', '2H', '2S', '3C', '3D', 
@@ -113,94 +71,53 @@ def load_card_image(card_name):
     CARD_IMAGE_CACHE[card_name] = resized_img
     return resized_img
 
-if args.setzones:
-    players, flop_slots = select_zones.set_zones(cap,cv2,FLOP_HAND_SIZE)
-else:
-    players, flop_slots = select_zones.fetch_zones()
 
+global player_cards 
+player_cards  = {} 
 
-player_cards = {} 
-flop_cards = {}
+global flop_cards 
+flop_cards= {}
 
-while True:
-    success, img = cap.read()
-    if not success: break
+global players, flop_slots
+players, flop_slots = select_zones.fetch_zones()
+
+app = Flask(__name__)
+@app.route('/process_frame', methods=['POST'])
+def process_frame():
+    global player_cards, flop_cards, players, flop_slots
     curr_t = time.time()
-    img = cv2.flip(img,-1)
 
-    p_slots = []
-    for p_idx, hand in enumerate(players, start=0):
-        for c_idx, card in enumerate(hand, start=0):
-            p_slots.append((card, 'player', p_idx, c_idx))
+    data = request.json
+    encoded_crops = data.get('crops', [])
+    slots = data.get('slots', [])
+    
+    decoded_crops = []
+    for c in encoded_crops:
+        nparr = np.frombuffer(base64.b64decode(c), np.uint8)
+        decoded_crops.append(cv2.imdecode(nparr, cv2.IMREAD_COLOR))
 
-    flop_labeled = []
-    for f_idx, card in enumerate(flop_slots, start=0):
-        flop_labeled.append((card, 'flop', 0,f_idx))
+    if not decoded_crops:
+        return jsonify({"status": "empty"})
 
-    all_slots = p_slots + flop_labeled
-    crops = []
-    for (x, y, w, h), label, p_idx,c_idx in all_slots:
-        crop = img[int(y):int(y+h), int(x):int(x+w)]
-        if crop.size > 0:
-            crop = adjust_gamma(crop, gamma=1.5)
-            crop = apply_clahe(crop)
-            crops.append(crop)
+    results = model(decoded_crops, conf=0.4, verbose=False)
+    resultsBack = modelBack(decoded_crops, conf=DN_CONF_MIN, verbose=False)
 
-            img[int(y):int(y+h), int(x):int(x+w)] = crop
-        else:
-            crops.append(np.zeros((100, 100, 3), dtype=np.uint8))
-
-    results = model(crops, conf=0.4, verbose=False)
-    resultsBack = modelBack(crops, conf=DN_CONF_MIN, verbose=False)
-
+    return_detections = []
 
     all_detections = []
     current_time = time.strftime("%Y-%m-%d %H:%M:%S")
-
-    for p_idx, hand_zones in enumerate(players):
-        for z_idx, (zx, zy, zw, zh) in enumerate(hand_zones):
-            roi = img[int(zy):int(zy+zh), int(zx):int(zx+zw)]
-            
-            if roi.size == 0:
-                continue
-
-            result = get_prediction(roi, detection_model)
-
-            for prediction in result.object_prediction_list:
-                bbox = prediction.bbox.to_xyxy() 
-                label = prediction.category.name
-                score = prediction.score.value
-
-                gx1, gy1 = int(bbox[0] + zx), int(bbox[1] + zy)
-                gx2, gy2 = int(bbox[2] + zx), int(bbox[3] + zy)
-
-                conf = round(float(score), 3)
-
-                chip_data = {
-                    "player_index": p_idx,
-                    "zone_index": z_idx,
-                    "label": label,
-                    "confidence": conf,
-                    "bbox": [gx1, gy1, gx2, gy2]
-                }
-                all_detections.append(chip_data)
-                
-
-                cv2.rectangle(img, (gx1, gy1), (gx2, gy2), (0, 255, 0), 2)
-                cv2.putText(img, f"P{p_idx+1}: {label} {conf}", (gx1, gy1-10), 
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
-
-        for (zx, zy, zw, zh) in hand_zones:
-            cv2.rectangle(img, (int(zx), int(zy)), (int(zx+zw), int(zy+zh)), (0, 0, 255), 1)
-
-
-    output_file = "PokerTracker/data/detected_chips.json"
-    with open(output_file, "w") as f:
-        json.dump({"timestamp": current_time, "detections": all_detections}, f, indent=4)
-    f.close()
-
+        
     for i, r in enumerate(results):
-            (roi_x, roi_y, roi_w, roi_h), label, p_idx, c_idx = all_slots[i]
+
+            slot_data = slots[i]
+            rect = slot_data.get('rect', [0, 0, 0, 0])
+            label = slot_data.get('label', 'unknown')
+            p_idx = slot_data.get('p_idx', 0)
+            c_idx = slot_data.get('c_idx', 0)
+
+            roi_x, roi_y, roi_w, roi_h = [int(v) for v in rect]
+
+        
             r_back = resultsBack[i]
             
             if len(r.boxes) > 0:
@@ -208,12 +125,14 @@ while True:
                     lx1, ly1, lx2, ly2 = [int(val) for val in box.xyxy[0]]
                     gx1, gy1, gx2, gy2 = roi_x + lx1, roi_y + ly1, roi_x + lx2, roi_y + ly2
 
-                    cv2.rectangle(img, (gx1, gy1), (gx2, gy2), (0, 255, 0), 2)
-                    card_name = classNames[int(box.cls[0])]
                     conf = box.conf[0].item()
-                    cv2.putText(img, f"{card_name} {conf:.2f}", (gx1, gy1 - 10), 
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
-                    
+                    card_name = classNames[int(box.cls[0])]
+                    return_detections.append({
+                                "bbox": [roi_x + lx1, roi_y + ly1, roi_x + lx2, roi_y + ly2],
+                                "label": f"{card_name} {conf:.2f}",
+                                "color": [0, 0, 255] 
+                            })
+
                 unique_detections = {}
                 for box in r.boxes:
                     conf = box.conf[0].item()
@@ -243,25 +162,28 @@ while True:
             elif len(r_back.boxes) > 0:
                 for box_back in r_back.boxes:
                     blx1, bly1, blx2, bly2 = [int(val) for val in box_back.xyxy[0]]
-                    bgx1, bgy1, bgx2, bgy2 = roi_x + blx1, roi_y + bly1, roi_x + blx2, roi_y + bly2
-                    
+            
+                    bgx1 = roi_x + blx1
+                    bgy1 = roi_y + bly1
+                    bgx2 = roi_x + blx2
+                    bgy2 = roi_y + bly2
                     conf = box_back.conf[0].item()
 
                     if args.verbose:
                         print(f"[VERBOSE] Detected DN in {label} slot {i} (Conf: {conf:.2f})")
 
                     if label == "player":
-                        cv2.rectangle(img, (bgx1, bgy1), (bgx2, bgy2), (255, 255, 0), 2)
-                        cv2.putText(img, f"DN {conf:.2f}", (bgx1, bgy1 - 10), 
-                                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 2)
+                        return_detections.append({
+                            "bbox": [roi_x + blx1, roi_y + bly1, roi_x + blx2, roi_y + bly2],
+                            "label": f"DN {conf:.2f}",
+                            "color": [0, 255, 255] 
+                        })
 
 
                 if label == "player":
                     if p_idx not in player_cards: player_cards[p_idx] = {}
                     for idx in range(min(len(r_back.boxes), 2)):
                         player_cards[p_idx][idx] = {'name': 'DN', 'conf': r_back.boxes[idx].conf[0].item(), 'ts': curr_t}
-
-
 
     if args.verbose:
         for p_id, cards in player_cards.items():
@@ -286,21 +208,6 @@ while True:
     }
 
 
-    for player_num,player in enumerate(players):
-        for box_num, (x, y, w, h) in enumerate(player):
-            color = (0, 255, 0) if box_num in player_cards else (0, 0, 255)
-            cv2.rectangle(img, (int(x), int(y)), (int(x+w), int(y+h)), color, 2)
-            cv2.putText(img, f"Player {player_num+1} Card {box_num+1}",(int(x), int(y-10)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
-
-    for i, (x, y, w, h) in enumerate(flop_slots):
-        color = (0, 255, 0) if i in flop_cards else (255, 0, 0)
-        cv2.rectangle(img, (int(x), int(y)), (int(x+w), int(y+h)), color, 2)
-        cv2.putText(img, f"Flop {i+1}", (int(x), int(y-10)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
-
-    ui_w = (5 * (CARD_IMAGE_WIDTH + 20)) + 40
-    ui_h = 450
-    ui_img = np.zeros((ui_h, ui_w, 3), dtype=np.uint8)
-
     if args.verbose:
         active_players = [p for p, cards in player_cards.items() if len(cards) > 0]
         active_flop = len(flop_cards)
@@ -317,18 +224,17 @@ while True:
         json.dump(player_cards, file, indent=4) 
     file.close()
 
-
-    cv2.imshow('Main Camera Feed (q to quit)', img)
-
-    key = cv2.waitKey(1)
-    if key == ord('q'):
-        break
-
     try:
         calcWinner.evaluate_winner()
     except Exception as e:
         print(f"Calc Winner: An unexpected error occurred: {e}")
 
 
-cap.release()
-cv2.destroyAllWindows()
+
+    return jsonify({
+        "status": "success",
+        "detections": return_detections
+    })
+
+
+app.run(host='0.0.0.0', port=5000, debug=False)
