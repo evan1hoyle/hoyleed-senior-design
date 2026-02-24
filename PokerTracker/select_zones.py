@@ -7,13 +7,14 @@ def set_zones(cap,cv2,FLOP_HAND_SIZE):
         players = []
         success, frame = cap.read()
         if not success: return [], []
+        frame = cv2.flip(frame,-1)
         
         cv2.namedWindow("Setup", cv2.WINDOW_NORMAL)
         cv2.resizeWindow("Setup", 1280, 720)
 
+        key = 32
         while True:
-            key = cv2.waitKey(0) & 0xFF
-
+            print(f"Draw player Slot. Press Space for more players or Enter to finish.")
             if key == 32:  
                 p_slots = []
                 roi = cv2.selectROI("Setup", frame, False)
@@ -21,14 +22,14 @@ def set_zones(cap,cv2,FLOP_HAND_SIZE):
                 if roi[2] > 0 and roi[3] > 0:
                     p_slots.append(roi)
                     players.append(p_slots)
-                    print(f"Added player at {roi}. Press Space for more or Enter to finish.")
+                    print(f"Added player at {roi}. Press Space for more players or Enter to finish.")
                 else:
                     print("Selection cancelled.")
-
             elif key in [13, 10]:  # Enter key
                 print("Selection complete.")
                 break
-                
+            key = cv2.waitKey(0) & 0xFF
+
         for i in range(FLOP_HAND_SIZE):
             print(f"Draw Flop Slot {i+1} and press ENTER")
             roi = cv2.selectROI("Setup", frame, False)
