@@ -16,13 +16,33 @@ CARD_TIMEOUT_SECONDS = 0.5
 CARD_IMAGES_DIR = "PokerTracker/card_images"
 CARD_IMAGE_WIDTH, CARD_IMAGE_HEIGHT = 100, 140 
 PLAYER_HAND_SIZE, FLOP_HAND_SIZE = 2, 5
-DN_CONF_MIN = 0.85
+DN_CONF_MIN = 0.80
 
 
 parser = argparse.ArgumentParser(description='A sample program with a flag.')
 parser.add_argument('-v', '--verbose', action='store_true', help='Enable verbose output')
 parser.add_argument('-z', '--setzones', action='store_true', help='Sets zones')
 args = parser.parse_args()
+
+
+def apply_clahe(gpu_img):
+    # Convert to LAB color space to equalize only the lightness channel
+    lab = cv2.cvtColor(gpu_img, cv2.COLOR_BGR2LAB)
+    l, a, b = cv2.split(lab)
+    
+    # clipLimit 2.0-3.0 is usually the sweet spot for YOLO
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
+    cl = clahe.apply(l)
+    
+    limg = cv2.merge((cl,a,b))
+    return cv2.cvtColor(limg, cv2.COLOR_LAB2BGR)
+
+
+def adjust_gamma(image, gamma=1.2):
+    invGamma = 1.0 / gamma
+    table = np.array([((i / 255.0) ** invGamma) * 255
+                      for i in np.arange(0, 256)]).astype("uint8")
+    return cv2.LUT(image, table)
 
 
 def open_first_available_camera():
@@ -106,6 +126,7 @@ while True:
     success, img = cap.read()
     if not success: break
     curr_t = time.time()
+    img = cv2.flip(img,-1)
 
     p_slots = []
     for p_idx, hand in enumerate(players, start=0):
@@ -121,7 +142,11 @@ while True:
     for (x, y, w, h), label, p_idx,c_idx in all_slots:
         crop = img[int(y):int(y+h), int(x):int(x+w)]
         if crop.size > 0:
+            crop = adjust_gamma(crop, gamma=1.5)
+            crop = apply_clahe(crop)
             crops.append(crop)
+
+            img[int(y):int(y+h), int(x):int(x+w)] = crop
         else:
             crops.append(np.zeros((100, 100, 3), dtype=np.uint8))
 
@@ -139,29 +164,30 @@ while True:
             if roi.size == 0:
                 continue
 
-
             result = get_prediction(roi, detection_model)
 
             for prediction in result.object_prediction_list:
-                bbox = prediction.bbox.to_xyxy() # [lx1, ly1, lx2, ly2] (local to crop)
+                bbox = prediction.bbox.to_xyxy() 
                 label = prediction.category.name
                 score = prediction.score.value
 
                 gx1, gy1 = int(bbox[0] + zx), int(bbox[1] + zy)
                 gx2, gy2 = int(bbox[2] + zx), int(bbox[3] + zy)
 
+                conf = round(float(score), 3)
+
                 chip_data = {
                     "player_index": p_idx,
                     "zone_index": z_idx,
                     "label": label,
-                    "confidence": round(float(score), 3),
+                    "confidence": conf,
                     "bbox": [gx1, gy1, gx2, gy2]
                 }
                 all_detections.append(chip_data)
                 
 
                 cv2.rectangle(img, (gx1, gy1), (gx2, gy2), (0, 255, 0), 2)
-                cv2.putText(img, f"P{p_idx+1}: {label}", (gx1, gy1-10), 
+                cv2.putText(img, f"P{p_idx+1}: {label} {conf}", (gx1, gy1-10), 
                             cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
 
         for (zx, zy, zw, zh) in hand_zones:
@@ -292,20 +318,16 @@ while True:
     file.close()
 
 
-    cv2.imshow('Main Camera Feed (R to Reset Zones, Q to Quit)', img)
+    cv2.imshow('Main Camera Feed (q to quit)', img)
 
     key = cv2.waitKey(1)
     if key == ord('q'):
         break
-    elif key == ord('r'):
-        player_slots, flop_slots = select_zones(cap)
-        player_cards.clear()
-        flop_cards.clear()
-    
+
     try:
         calcWinner.evaluate_winner()
     except Exception as e:
-        print(f"An unexpected error occurred: {e}")
+        print(f"Calc Winner: An unexpected error occurred: {e}")
 
 
 cap.release()

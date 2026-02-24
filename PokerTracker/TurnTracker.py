@@ -19,7 +19,8 @@ state = {
     "last_round_seen": None,
     "waiting_for_dealer": False,
     "showdown_mode": False,
-    "showdown_index": 0
+    "showdown_index": 0,
+    "all_flipped": False
 }
 
 def get_file_hash(filename):
@@ -37,21 +38,18 @@ def load_json(filename):
         return {}
 
 def track_poker_turn():
-    # 1. Detect Action (Check)
-    current_hash = get_file_hash('data/last_check.json')
+    current_hash = get_file_hash('PokerTracker/data/last_check.json')
     new_action = False
     if current_hash and current_hash != state["last_check_hash"]:
         if state["last_check_hash"] is not None:
             new_action = True
         state["last_check_hash"] = current_hash
 
-    # 2. Load Table State
     player_cards = load_json('PokerTracker/data/player_cards.json')
     flop_cards = load_json('PokerTracker/data/flop_cards.json')
     card_count = len(flop_cards)
 
-    # 3. Handle Round Transitions & Reset
-    if state["last_round_seen"] != card_count:
+    if state["last_round_seen"] != card_count and card_count >= 3:
         state["current_turn_index"] = 0
         state["last_round_seen"] = card_count
         state["waiting_for_dealer"] = False
@@ -89,6 +87,10 @@ def track_poker_turn():
                     state["waiting_for_dealer"] = True
 
     # 6. Generate Instructions
+    if state["all_flipped"]:
+        instruction = "ALL CARDS REVEALED: Score Hand"
+        current_turn = "None"
+        mode = "Result"
     if state["showdown_mode"]:
         if state["showdown_index"] < len(active_ids):
             target_player = active_ids[state["showdown_index"]]
@@ -113,8 +115,11 @@ def track_poker_turn():
         "mode": "Showdown" if state["showdown_mode"] else "Action"
     }
 
-# Main loop
+
+last_res = None
 while True:
     res = track_poker_turn()
-    print(f"[{res['mode']}] {res['instruction']}")
+    if res != last_res:
+        print(f"[{res['mode']}] {res['instruction']}")
+        last_res = res
     time.sleep(0.5)
