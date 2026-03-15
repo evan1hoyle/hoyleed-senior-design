@@ -8,6 +8,9 @@ import calcWinner
 import select_zones
 import argparse
 import base64
+import http
+import threading
+import socketserver
 from flask import Flask, request, jsonify
 from sahi import AutoDetectionModel
 from sahi.predict import get_prediction
@@ -49,6 +52,28 @@ classNames = [
     'JC', 'JD', 'JH', 'JS', 'KC', 'KD', 'KH', 'KS', 'QC', 'QD', 
     'QH', 'QS'
 ]
+
+WEB_PORT = 8000
+def start_web_server():
+    """Starts a simple HTTP server without breaking the main script's paths."""
+    # Define where index.html lives (PokerTracker folder)
+    web_dir = os.path.dirname(os.path.abspath(__file__))
+    
+    class Handler(http.server.SimpleHTTPRequestHandler):
+        def __init__(self, *args, **kwargs):
+            # Tell this specific handler to look in the PokerTracker folder
+            super().__init__(*args, directory=web_dir, **kwargs)
+
+    socketserver.TCPServer.allow_reuse_address = True
+    with socketserver.TCPServer(("", WEB_PORT), Handler) as httpd:
+        print(f"Dashboard available at http://localhost:{WEB_PORT}")
+        httpd.serve_forever()
+
+
+web_thread = threading.Thread(target=start_web_server, daemon=True)
+web_thread.start()
+
+
 
 def get_card_file_name(card_name):
     rank, suit = card_name[:-1], card_name[-1]
