@@ -28,6 +28,13 @@ navigate to localhost:8080
 
 ```
 
+## test multiple clients
+
+```
+ython3 PokerTracker/client.py --video Testvideo.mp4 -pz p_slots_play12 & python3 PokerTracker/client.py --video Testvideo.mp4 -pz p_slots_play3 &
+
+```
+
 
 
 ### Results
@@ -36,6 +43,15 @@ navigate to localhost:8080
 
 <p align="center">
   <img src="GUI.png" width="600">
+</p>
+
+## multiple clients
+<p align="center">
+  <img src="multipleClients.png" width="600">
+</p>
+
+<p align="center">
+  <img src="multipleClientsLive.png" width="600">
 </p>
 
 ## Live computer vision 

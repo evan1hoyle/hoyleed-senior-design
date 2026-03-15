@@ -1,6 +1,6 @@
 import json
 
-def set_zones(cap,cv2,FLOP_HAND_SIZE):
+def set_zones(cap,cv2,FLOP_HAND_SIZE,P_PATH="p_slots",F_PATH="f_slots"):
     answer = input("Do you want to draw boxs? (yes/no): ").lower()
     if answer == "yes" or answer == "y":
         f_slots = []
@@ -37,9 +37,9 @@ def set_zones(cap,cv2,FLOP_HAND_SIZE):
             
         cv2.destroyWindow("Setup")
 
-        with open("PokerTracker/data/p_slots.json", "w") as file:
+        with open("PokerTracker/data/{path}.json".format(path=P_PATH), "r") as file:
             json.dump(players, file, indent=4) 
-        with open("PokerTracker/data/f_slots.json", "w") as file:
+        with open("PokerTracker/data/{path}.json".format(path=F_PATH), "r") as file:
             json.dump(f_slots, file, indent=4) 
 
     elif answer == "no" or answer == "n":
@@ -49,9 +49,9 @@ def set_zones(cap,cv2,FLOP_HAND_SIZE):
     return players, f_slots
 
 
-def fetch_zones():
-    with open("PokerTracker/data/p_slots.json", "r") as file:
+def fetch_zones(P_PATH="p_slots",F_PATH="f_slots"):
+    with open("PokerTracker/data/{path}.json".format(path=P_PATH), "r") as file:
         players = json.load(file)
-    with open("PokerTracker/data/f_slots.json", "r") as file:
+    with open("PokerTracker/data/{path}.json".format(path=F_PATH), "r") as file:
         f_slots = json.load(file)
     return players, f_slots
