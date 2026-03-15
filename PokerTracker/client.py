@@ -132,7 +132,7 @@ while True:
     except Exception as e:
         print(f"Connection Error: {e}")
 
-    cv2.imshow('Slave Feed', img)
+    cv2.imshow('{feed} Feed'.format(feed=CLIENT_ID), img)
     if cv2.waitKey(1) == ord('q'): break
 
 cap.release()
