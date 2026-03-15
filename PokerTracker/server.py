@@ -15,7 +15,7 @@ from sahi.predict import get_prediction
 
 
 X, Y = 1920, 1080
-CARD_TIMEOUT_SECONDS = 0.5
+CARD_TIMEOUT_SECONDS = 2
 CARD_IMAGES_DIR = "PokerTracker/card_images"
 CARD_IMAGE_WIDTH, CARD_IMAGE_HEIGHT = 100, 140 
 PLAYER_HAND_SIZE, FLOP_HAND_SIZE = 2, 5
@@ -88,6 +88,7 @@ def process_frame():
     curr_t = time.time()
 
     data = request.json
+    client_id = data.get('client_id', 'unknown_client')
     encoded_crops = data.get('crops', [])
     slots = data.get('slots', [])
     
@@ -103,6 +104,9 @@ def process_frame():
     resultsBack = modelBack(decoded_crops, conf=DN_CONF_MIN, verbose=False)
 
     return_detections = []
+
+    if client_id not in player_cards:
+        player_cards[client_id] = {}
 
     all_detections = []
     current_time = time.strftime("%Y-%m-%d %H:%M:%S")
@@ -144,20 +148,13 @@ def process_frame():
                 
                 sorted_cards = sorted(unique_detections.values(), key=lambda x: x['conf'], reverse=True)
                 if label == "player":
-                    if p_idx not in player_cards: player_cards[p_idx] = {}
+                    if p_idx not in player_cards[client_id]: 
+                        player_cards[client_id][p_idx] = {}
                     for idx, card in enumerate(sorted_cards[:2]):
-                        player_cards[p_idx][idx] = {'name': card['name'], 'conf': card['conf'], 'ts': curr_t}
+                        player_cards[client_id][p_idx][idx] = {'name': card['name'], 'conf': card['conf'], 'ts': curr_t}
                 elif label == "flop":
-                    max_conf = 0
-                    best_box = None
-                    for box in r.boxes:
-                        if box.conf[0] > max_conf:
-                            max_conf = box.conf[0].item()
-                            best_box = box
-                            
-                    if best_box:
-                        card_name = classNames[int(best_box.cls[0])]
-                        flop_cards[c_idx] = {'name': card_name, 'conf': max_conf, 'ts': curr_t}
+                    flop_cards[c_idx] = {'name': sorted_cards[0]['name'], 'conf': sorted_cards[0]['conf'], 'ts': curr_t}
+
 
             elif len(r_back.boxes) > 0:
                 for box_back in r_back.boxes:
@@ -179,11 +176,23 @@ def process_frame():
                             "color": [0, 255, 255] 
                         })
 
-
                 if label == "player":
-                    if p_idx not in player_cards: player_cards[p_idx] = {}
+                    if p_idx not in player_cards[client_id]: player_cards[client_id][p_idx] = {}
                     for idx in range(min(len(r_back.boxes), 2)):
-                        player_cards[p_idx][idx] = {'name': 'DN', 'conf': r_back.boxes[idx].conf[0].item(), 'ts': curr_t}
+                        player_cards[client_id][p_idx][idx] = {'name': 'DN', 'conf': r_back.boxes[idx].conf[0].item(), 'ts': curr_t}
+                    
+    new_player_cards = {}
+    for cid, p_data in player_cards.items():
+        client_players = {}
+        for p_id, cards in p_data.items():
+            valid_cards = {c_idx: d for c_idx, d in cards.items() if curr_t - d['ts'] < CARD_TIMEOUT_SECONDS}
+            if valid_cards:
+                client_players[p_id] = valid_cards
+        if client_players:
+            new_player_cards[cid] = client_players
+    player_cards = new_player_cards
+
+    flop_cards = {c_idx: d for c_idx, d in flop_cards.items() if curr_t - d['ts'] < CARD_TIMEOUT_SECONDS}
 
     if args.verbose:
         for p_id, cards in player_cards.items():
@@ -195,17 +204,6 @@ def process_frame():
             if curr_t - data['ts'] >= CARD_TIMEOUT_SECONDS:
                 print(f"[TIMEOUT] Flop Slot {c_idx+1} ({data['name']}) removed after {CARD_TIMEOUT_SECONDS}s")
 
-    player_cards = {
-        p_id: {
-            c_idx: data for c_idx, data in cards.items() 
-            if curr_t - data['ts'] < CARD_TIMEOUT_SECONDS
-        }
-        for p_id, cards in player_cards.items()
-    }
-    flop_cards = {
-        c_idx: data for c_idx, data in flop_cards.items() 
-        if curr_t - data['ts'] < CARD_TIMEOUT_SECONDS
-    }
 
 
     if args.verbose:

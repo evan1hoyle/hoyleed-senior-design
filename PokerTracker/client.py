@@ -5,15 +5,18 @@ import requests
 import base64
 import argparse
 import select_zones
-
+import uuid
 
 SERVER_URL = "http://127.0.0.1:5000/process_frame" 
 X, Y = 1920, 1080
 FLOP_HAND_SIZE = 5
+CLIENT_ID = str(uuid.uuid4())[:8]
 
 parser = argparse.ArgumentParser()
 parser.add_argument('-v', '--verbose', action='store_true')
 parser.add_argument('-z', '--setzones', action='store_true')
+parser.add_argument('-pz','--playerzone', type=str, help='name of custom player zone file')
+parser.add_argument('--video', type=str, help='Path to test video file')
 args = parser.parse_args()
 
 def apply_clahe(img):
@@ -39,15 +42,28 @@ def open_first_available_camera():
     raise RuntimeError("Error: Could not find an available camera.")
     return None
 
+def get_video_source():
+    if args.video:
+        if args.verbose:
+            print(f"Opening video file: {args.video}")
+        cap = cv2.VideoCapture(args.video)
+        if not cap.isOpened():
+            raise FileNotFoundError(f"Could not open video file: {args.video}")
+        return cap
+    else:
+        return open_first_available_camera()
 
-cap = open_first_available_camera()
+cap = get_video_source()
 cap.set(3, X)
 cap.set(4, Y)
 
 if args.setzones:
     players, flop_slots = select_zones.set_zones(cap, cv2, FLOP_HAND_SIZE)
 else:
-    players, flop_slots = select_zones.fetch_zones()
+    if(args.playerzone):
+        players, flop_slots = select_zones.fetch_zones(P_PATH=args.playerzone)
+    else:
+         players, flop_slots = select_zones.fetch_zones()
 
 while True:
     success, img = cap.read()
@@ -78,11 +94,25 @@ while True:
                 "c_idx": int(c_idx)
             })
 
-
     payload = {
-        "crops": encoded_crops,
-        "slots": sanitized_slots  
-    }
+            "client_id": CLIENT_ID, 
+            "crops": encoded_crops,
+            "slots": sanitized_slots  
+        }
+
+    for p_idx, hand in enumerate(players):
+        for c_idx, rect in enumerate(hand):
+            x, y, w, h = [int(v) for v in rect]
+            cv2.rectangle(img, (x, y), (x + w, y + h), (255, 0, 0), 2)
+            cv2.putText(img, f"P{p_idx} C{c_idx}", (x, y - 5), 
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 0, 0), 1)
+
+    for f_idx, rect in enumerate(flop_slots):
+        x, y, w, h = [int(v) for v in rect]
+        cv2.rectangle(img, (x, y), (x + w, y + h), (0, 255, 0), 2)
+        cv2.putText(img, f"Flop {f_idx}", (x, y - 5), 
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 255, 0), 1)
+
 
     try:
         response = requests.post(SERVER_URL, json=payload)
@@ -93,9 +123,8 @@ while True:
             for det in detections:
                 x1, y1, x2, y2 = det['bbox']
                 label = det['label']
-                color = det['color'] # Comes as a list [B, G, R]
+                color = det['color'] 
 
-                # Draw the box returned by the server
                 cv2.rectangle(img, (x1, y1), (x2, y2), tuple(color), 2)
                 cv2.putText(img, label, (x1, y1 - 10), 
                             cv2.FONT_HERSHEY_SIMPLEX, 0.5, tuple(color), 2)
