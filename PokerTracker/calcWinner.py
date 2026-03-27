@@ -10,6 +10,13 @@ def format_card_for_treys(card_str):
 
 def evaluate_winner():
     evaluator = Evaluator()
+    output_path = 'PokerTracker/data/winner.json'
+
+    output_data = {
+        "winner_id": None,
+        "results": {},
+        "status": "No active cards"
+    }
     
     try:
         with open('PokerTracker/data/flop_cards.json', 'r') as f:
@@ -21,6 +28,11 @@ def evaluate_winner():
         return
 
     board = [Card.new(format_card_for_treys(c['name'])) for c in flop_data.values()]
+
+    if not board or not player_data:
+        with open(output_path, 'w') as out_file:
+            json.dump(output_data, out_file, indent=4)
+        return
     
     if not board:
         return
@@ -74,8 +86,9 @@ def evaluate_winner():
         "results": all_player_results
     }
 
-    with open('PokerTracker/data/winner.json', 'w') as out_file:
+    with open(output_path, 'w') as out_file:
         json.dump(output_data, out_file, indent=4)
+
 
 if __name__ == "__main__":
     evaluate_winner()

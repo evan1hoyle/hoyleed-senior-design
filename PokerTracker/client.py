@@ -17,6 +17,7 @@ parser.add_argument('-v', '--verbose', action='store_true')
 parser.add_argument('-z', '--setzones', action='store_true')
 parser.add_argument('-pz','--playerzone', type=str, help='name of custom player zone file')
 parser.add_argument('--video', type=str, help='Path to test video file')
+parser.add_argument('--loop', action='store_true', help='Loop the video')
 args = parser.parse_args()
 
 def apply_clahe(img):
@@ -67,7 +68,14 @@ else:
 
 while True:
     success, img = cap.read()
-    if not success: break
+    if not success:
+            if args.video and args.loop:
+                if args.verbose:
+                    print("Looping video...")
+                cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                success, img = cap.read()
+            else:
+                break 
     curr_t = time.time()
     img = cv2.flip(img,-1)
 
@@ -132,7 +140,7 @@ while True:
     except Exception as e:
         print(f"Connection Error: {e}")
 
-    cv2.imshow('Slave Feed', img)
+    cv2.imshow('{feed} Feed'.format(feed=CLIENT_ID), img)
     if cv2.waitKey(1) == ord('q'): break
 
 cap.release()

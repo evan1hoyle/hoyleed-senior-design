@@ -31,7 +31,7 @@ navigate to localhost:8080
 ## test multiple clients
 
 ```
-ython3 PokerTracker/client.py --video Testvideo.mp4 -pz p_slots_play12 & python3 PokerTracker/client.py --video Testvideo.mp4 -pz p_slots_play3 &
+python3 PokerTracker/client.py --video Testvideo.mp4 -pz p_slots_play12 --loop & python3 PokerTracker/client.py --video Testvideo.mp4 -pz p_slots_play3 --loop &
 
 ```
 

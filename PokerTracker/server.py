@@ -8,6 +8,9 @@ import calcWinner
 import select_zones
 import argparse
 import base64
+import http
+import threading
+import socketserver
 from flask import Flask, request, jsonify
 from sahi import AutoDetectionModel
 from sahi.predict import get_prediction
@@ -49,6 +52,32 @@ classNames = [
     'JC', 'JD', 'JH', 'JS', 'KC', 'KD', 'KH', 'KS', 'QC', 'QD', 
     'QH', 'QS'
 ]
+
+DEBUG_DIR = "PokerTracker/debug_crops"
+if not os.path.exists(DEBUG_DIR):
+    os.makedirs(DEBUG_DIR)
+
+WEB_PORT = 8000
+def start_web_server():
+    """Starts a simple HTTP server without breaking the main script's paths."""
+    # Define where index.html lives (PokerTracker folder)
+    web_dir = os.path.dirname(os.path.abspath(__file__))
+    
+    class Handler(http.server.SimpleHTTPRequestHandler):
+        def __init__(self, *args, **kwargs):
+            # Tell this specific handler to look in the PokerTracker folder
+            super().__init__(*args, directory=web_dir, **kwargs)
+
+    socketserver.TCPServer.allow_reuse_address = True
+    with socketserver.TCPServer(("", WEB_PORT), Handler) as httpd:
+        print(f"Dashboard available at http://localhost:{WEB_PORT}")
+        httpd.serve_forever()
+
+
+web_thread = threading.Thread(target=start_web_server, daemon=True)
+web_thread.start()
+
+
 
 def get_card_file_name(card_name):
     rank, suit = card_name[:-1], card_name[-1]
@@ -99,6 +128,10 @@ def process_frame():
 
     if not decoded_crops:
         return jsonify({"status": "empty"})
+    
+
+    for i, crop in enumerate(decoded_crops):
+        cv2.imwrite(f"{DEBUG_DIR}/crop_{i}.jpg", crop)
 
     results = model(decoded_crops, conf=0.4, verbose=False)
     resultsBack = modelBack(decoded_crops, conf=DN_CONF_MIN, verbose=False)

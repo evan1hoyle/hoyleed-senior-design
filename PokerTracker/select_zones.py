@@ -37,9 +37,9 @@ def set_zones(cap,cv2,FLOP_HAND_SIZE,P_PATH="p_slots",F_PATH="f_slots"):
             
         cv2.destroyWindow("Setup")
 
-        with open("PokerTracker/data/{path}.json".format(path=P_PATH), "r") as file:
+        with open("PokerTracker/data/{path}.json".format(path=P_PATH), "w") as file:
             json.dump(players, file, indent=4) 
-        with open("PokerTracker/data/{path}.json".format(path=F_PATH), "r") as file:
+        with open("PokerTracker/data/{path}.json".format(path=F_PATH), "w") as file:
             json.dump(f_slots, file, indent=4) 
 
     elif answer == "no" or answer == "n":
