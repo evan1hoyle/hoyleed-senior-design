@@ -1,3 +1,4 @@
 *.json
 __pycache__*
 best5.pt
+debug_crops

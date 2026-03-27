@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>PokerTracker Crop Monitor</title>
+    <style>
+        body { font-family: sans-serif; background: #222; color: white; }
+        .grid { display: flex; flex-wrap: wrap; gap: 10px; padding: 20px; }
+        .card { border: 2px solid #444; text-align: center; }
+        img { width: 150px; height: auto; display: block; }
+    </style>
+</head>
+<body>
+    <h2>Live Detection Crops</h2>
+    <div id="gallery" class="grid">
+        <script>
+            for(let i=0; i<12; i++) {
+                document.write(`
+                    <div class="card">
+                        <img src="debug_crops/crop_${i}.jpg?t=${Date.now()}" 
+                             onerror="this.style.display='none'" 
+                             onload="this.style.display='block'">
+                        <small>Slot ${i}</small>
+                    </div>
+                `);
+            }
+            setInterval(() => {
+                document.querySelectorAll('img').forEach(img => {
+                    const src = img.src.split('?')[0];
+                    img.src = src + '?t=' + Date.now();
+                });
+            }, 1000);
+        </script>
+    </div>
+</body>
+</html>

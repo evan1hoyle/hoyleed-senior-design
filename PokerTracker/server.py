@@ -53,6 +53,10 @@ classNames = [
     'QH', 'QS'
 ]
 
+DEBUG_DIR = "PokerTracker/debug_crops"
+if not os.path.exists(DEBUG_DIR):
+    os.makedirs(DEBUG_DIR)
+
 WEB_PORT = 8000
 def start_web_server():
     """Starts a simple HTTP server without breaking the main script's paths."""
@@ -124,6 +128,10 @@ def process_frame():
 
     if not decoded_crops:
         return jsonify({"status": "empty"})
+    
+
+    for i, crop in enumerate(decoded_crops):
+        cv2.imwrite(f"{DEBUG_DIR}/crop_{i}.jpg", crop)
 
     results = model(decoded_crops, conf=0.4, verbose=False)
     resultsBack = modelBack(decoded_crops, conf=DN_CONF_MIN, verbose=False)
