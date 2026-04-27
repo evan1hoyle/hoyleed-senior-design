@@ -100,6 +100,11 @@ def load_card_image(card_name):
     CARD_IMAGE_CACHE[card_name] = resized_img
     return resized_img
 
+def has_two_identical_detections(yolo_results,class_id):
+    detected_classes = [int(box.cls[0]) for box in yolo_results.boxes]
+    count = detected_classes.count(class_id)
+    
+    return count >= 2
 
 global player_cards 
 player_cards  = {} 
@@ -156,6 +161,8 @@ def process_frame():
 
         
             r_back = resultsBack[i]
+
+            conf = 0
             
             if len(r.boxes) > 0:
                 for box in r.boxes:
@@ -164,15 +171,22 @@ def process_frame():
 
                     conf = box.conf[0].item()
                     card_name = classNames[int(box.cls[0])]
+                    rank = card_name[:-1]
+                    
+                    if has_two_identical_detections(r,int(box.cls[0])):
+                        conf = conf * 1.1
+                    else:
+                        conf = conf * 0.9
+
                     return_detections.append({
-                                "bbox": [roi_x + lx1, roi_y + ly1, roi_x + lx2, roi_y + ly2],
-                                "label": f"{card_name} {conf:.2f}",
-                                "color": [0, 0, 255] 
-                            })
+                        "bbox": [roi_x + lx1, roi_y + ly1, roi_x + lx2, roi_y + ly2],
+                        "label": f"{card_name} {conf:.2f}",
+                        "color": [0, 0, 255] 
+                    })
+
 
                 unique_detections = {}
                 for box in r.boxes:
-                    conf = box.conf[0].item()
                     name = classNames[int(box.cls[0])]
                     if args.verbose:
                         print(f"[VERBOSE] Detected {name} in {label} slot {i} (Conf: {conf:.2f})")
