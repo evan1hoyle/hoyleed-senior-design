@@ -174,7 +174,7 @@ def process_frame():
                     rank = card_name[:-1]
                     
                     if has_two_identical_detections(r,int(box.cls[0])):
-                        conf = conf * 1.1
+                        conf = min(conf * 1.1, 0.98)
                     else:
                         conf = conf * 0.9
 
